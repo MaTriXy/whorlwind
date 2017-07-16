@@ -15,7 +15,7 @@ Whorlwind.create(context, storage, keyAlias)
 ```
 
 You control where Whorlwind saves your encrypted data by providing a `Storage`. Whorlwind ships with
-a `SharedPreferenceStorage` if you want to store your data to shared preferences.
+a `SharedPreferencesStorage` if you want to store your data to shared preferences.
 
 `keyAlias` is used when generating a key pair in the `KeyStore` and should not be shared with any
 other key aliases in your project.
@@ -95,7 +95,7 @@ Download
 Gradle:
 
 ```groovy
-compile 'com.squareup.whorlwind:whorlwind:1.0.0'
+compile 'com.squareup.whorlwind:whorlwind:1.0.1'
 ```
 
 

@@ -72,10 +72,10 @@ import rx.subscriptions.Subscriptions;
 
       encrypted = storage.get(name);
       if (encrypted == null) {
-        emitResult = new ReadResult(ReadState.READY, -1, null, null);
+        emitResult = ReadResult.create(ReadState.READY, -1, null, null);
         emitComplete = true;
       } else {
-        emitResult = new ReadResult(ReadState.NEEDS_AUTH, -1, null, null);
+        emitResult = ReadResult.create(ReadState.NEEDS_AUTH, -1, null, null);
       }
 
       try {
@@ -112,12 +112,17 @@ import rx.subscriptions.Subscriptions;
       }
     }));
 
+    if (subscriber.isUnsubscribed()) {
+      readerScanning.set(false);
+      return;
+    }
+
     fingerprintManager.authenticate(new FingerprintManager.CryptoObject(cipher), cancellationSignal,
         0, new FingerprintManager.AuthenticationCallback() {
           @Override public void onAuthenticationError(int errorCode, CharSequence errString) {
             if (!subscriber.isUnsubscribed()) {
               subscriber.onNext(
-                  new ReadResult(ReadState.UNRECOVERABLE_ERROR, errorCode, errString, null));
+                  ReadResult.create(ReadState.UNRECOVERABLE_ERROR, errorCode, errString, null));
               subscriber.onCompleted();
             }
 
@@ -127,7 +132,7 @@ import rx.subscriptions.Subscriptions;
           @Override public void onAuthenticationHelp(int helpCode, CharSequence helpString) {
             if (!subscriber.isUnsubscribed()) {
               subscriber.onNext(
-                  new ReadResult(ReadState.RECOVERABLE_ERROR, helpCode, helpString, null));
+                  ReadResult.create(ReadState.RECOVERABLE_ERROR, helpCode, helpString, null));
             }
           }
 
@@ -139,7 +144,7 @@ import rx.subscriptions.Subscriptions;
                 byte[] decrypted = cipher.doFinal(encrypted.toByteArray());
 
                 subscriber.onNext(
-                    new ReadResult(ReadState.READY, -1, null, ByteString.of(decrypted)));
+                    ReadResult.create(ReadState.READY, -1, null, ByteString.of(decrypted)));
                 subscriber.onCompleted();
               } catch (IllegalBlockSizeException | BadPaddingException e) {
                 Log.i(Whorlwind.TAG, "Failed to decrypt.", e);
@@ -152,7 +157,7 @@ import rx.subscriptions.Subscriptions;
 
           @Override public void onAuthenticationFailed() {
             if (!subscriber.isUnsubscribed()) {
-              subscriber.onNext(new ReadResult(ReadState.AUTHORIZATION_ERROR, -1, null, null));
+              subscriber.onNext(ReadResult.create(ReadState.AUTHORIZATION_ERROR, -1, null, null));
             }
           }
         }, null);
