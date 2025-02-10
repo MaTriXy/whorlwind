@@ -15,19 +15,20 @@
  */
 package com.squareup.whorlwind;
 
+import io.reactivex.Completable;
+import io.reactivex.Observable;
 import okio.ByteString;
-import rx.Observable;
 
 class NullWhorlwind extends Whorlwind {
   @Override public boolean canStoreSecurely() {
     return false;
   }
 
-  @Override public void write(String name, ByteString value) {
-    throw new UnsupportedOperationException();
+  @Override public Completable write(String name, ByteString value) {
+    return Completable.error(new UnsupportedOperationException());
   }
 
   @Override public Observable<ReadResult> read(String name) {
-    throw new UnsupportedOperationException();
+    return Observable.error(new UnsupportedOperationException());
   }
 }

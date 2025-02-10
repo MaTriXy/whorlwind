@@ -1,12 +1,21 @@
-allprojects {
-  buildscript {
-    repositories {
-      jcenter()
-      mavenCentral()
-    }
+apply plugin: "com.github.ben-manes.versions"
+
+buildscript {
+  repositories {
+    google()
+    jcenter()
+    mavenCentral()
   }
   dependencies {
+    classpath 'com.android.tools.build:gradle:3.5.0'
+    classpath 'com.github.ben-manes:gradle-versions-plugin:0.22.0'
+  }
+}
+
+subprojects {
+  dependencies {
     repositories {
+      google()
       jcenter()
       mavenCentral()
     }

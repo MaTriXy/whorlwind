@@ -15,18 +15,19 @@
  */
 package com.squareup.whorlwind;
 
-import android.annotation.SuppressLint;
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.hardware.fingerprint.FingerprintManager;
 import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyPermanentlyInvalidatedException;
 import android.security.keystore.KeyProperties;
-import android.support.annotation.CheckResult;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import android.util.Log;
+import io.reactivex.Completable;
+import io.reactivex.Observable;
+import io.reactivex.functions.Action;
 import java.security.GeneralSecurityException;
 import java.security.Key;
 import java.security.KeyFactory;
@@ -40,22 +41,24 @@ import java.security.spec.X509EncodedKeySpec;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.crypto.Cipher;
 import okio.ByteString;
-import rx.Observable;
 
+import static android.Manifest.permission.USE_BIOMETRIC;
 import static android.Manifest.permission.USE_FINGERPRINT;
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 
-@TargetApi(Build.VERSION_CODES.M) //
+@RequiresApi(Build.VERSION_CODES.M)
 final class RealWhorlwind extends Whorlwind {
   private final Context context;
   private final FingerprintManager fingerprintManager;
-  private final Storage storage;
+  @SuppressWarnings("WeakerAccess") // Used in nested class. Removing synthetic accessor.
+  final Storage storage;
   private final String keyAlias;
   private final KeyStore keyStore;
   private final KeyPairGenerator keyGenerator;
   private final KeyFactory keyFactory;
   private final AtomicBoolean readerScanning;
-  private final Object dataLock = new Object();
+  @SuppressWarnings("WeakerAccess") // Used in nested class. Removing synthetic accessor.
+  final Object dataLock = new Object();
 
   RealWhorlwind(Context context, FingerprintManager fingerprintManager, Storage storage,
       String keyAlias, KeyStore keyStore, KeyPairGenerator keyGenerator, KeyFactory keyFactory) {
@@ -70,12 +73,18 @@ final class RealWhorlwind extends Whorlwind {
     readerScanning = new AtomicBoolean();
   }
 
-  // Lint is being stupid. The permission is being checked first before accessing fingerprint APIs.
-  @SuppressLint("MissingPermission") //
-  @CheckResult @Override public boolean canStoreSecurely() {
-    return checkSelfPermission(USE_FINGERPRINT) == PERMISSION_GRANTED
-        && fingerprintManager.isHardwareDetected()
-        && fingerprintManager.hasEnrolledFingerprints();
+  @Override public boolean canStoreSecurely() {
+    return hasPermission()
+        && isHardwareDetected(fingerprintManager)
+        && hasEnrolledFingerprints(fingerprintManager);
+  }
+
+  private boolean hasPermission() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+      return checkSelfPermission(USE_FINGERPRINT) == PERMISSION_GRANTED;
+    } else {
+      return checkSelfPermission(USE_BIOMETRIC) == PERMISSION_GRANTED;
+    }
   }
 
   private int checkSelfPermission(String permission) {
@@ -90,31 +99,29 @@ final class RealWhorlwind extends Whorlwind {
     }
   }
 
-  @Override public void write(@NonNull String name, @Nullable ByteString value) {
-    checkCanStoreSecurely();
+  @Override public Completable write(@NonNull final String name, @Nullable final ByteString value) {
+    return Completable.fromAction(new Action() {
+      @Override public void run() throws Exception {
+        checkCanStoreSecurely();
 
-    synchronized (dataLock) {
-      if (value == null) {
-        storage.remove(name);
-        return;
+        synchronized (dataLock) {
+          if (value == null) {
+            storage.remove(name);
+            return;
+          }
+
+          prepareKeyStore();
+
+          Cipher cipher = createCipher();
+          cipher.init(Cipher.ENCRYPT_MODE, getPublicKey());
+
+          storage.put(name, ByteString.of(cipher.doFinal(value.toByteArray())));
+        }
       }
-
-      prepareKeyStore();
-
-      try {
-        Cipher cipher = createCipher();
-        cipher.init(Cipher.ENCRYPT_MODE, getPublicKey());
-
-        storage.put(name, ByteString.of(cipher.doFinal(value.toByteArray())));
-      } catch (Exception e) {
-        Log.w(TAG, String.format("Failed to write value for %s", name), e);
-      }
-    }
+    });
   }
 
-  @CheckResult @Override public Observable<ReadResult> read(@NonNull String name) {
-    checkCanStoreSecurely();
-
+  @Override public Observable<ReadResult> read(@NonNull String name) {
     return Observable.create(new FingerprintAuthOnSubscribe(fingerprintManager, storage, name, //
         readerScanning, dataLock, this));
   }
@@ -162,7 +169,7 @@ final class RealWhorlwind extends Whorlwind {
         + KeyProperties.ENCRYPTION_PADDING_RSA_PKCS1);
   }
 
-  private PublicKey getPublicKey() throws GeneralSecurityException {
+  @SuppressWarnings("WeakerAccess") PublicKey getPublicKey() throws GeneralSecurityException {
     PublicKey publicKey = keyStore.getCertificate(keyAlias).getPublicKey();
 
     // In contradiction to the documentation, the public key returned from the key store is only
@@ -176,5 +183,13 @@ final class RealWhorlwind extends Whorlwind {
 
   PrivateKey getPrivateKey() throws GeneralSecurityException {
     return (PrivateKey) keyStore.getKey(keyAlias, null);
+  }
+
+  void removeKey() {
+    try {
+      keyStore.deleteEntry(keyAlias);
+    } catch (Exception e) {
+      Log.d(TAG, "Remove key failed", e);
+    }
   }
 }

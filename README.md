@@ -4,6 +4,12 @@ Whorlwind
 A reactive wrapper around Android's fingerprint API that handles encrypting/decrypting sensitive
 data using a fingerprint.
 
+**DEPRECATED:** Google has released the [AndroidX Biometric Library][biometric] which supports more
+forms of authentication than fingerprint and should be relied on going forward. See
+[the announcement][announcement] for more information.
+
+[biometric]: https://developer.android.com/jetpack/androidx/releases/biometric
+[announcement]: https://android-developers.googleblog.com/2019/10/one-biometric-api-over-all-android.html
 
 Usage
 -----
@@ -36,7 +42,8 @@ not be called on the main thread.
 if (whorlwind.canStoreSecurely()) {
   Observable.just("value")
       .observeOn(Schedulers.io())
-      .subscribe(value -> whorlwind.write("key", ByteString.encodeUtf8(value)));
+      .flatMapCompletable(value -> whorlwind.write("key", ByteString.encodeUtf8(value)))
+      .subscribe();
 }
 ```
 
@@ -95,7 +102,7 @@ Download
 Gradle:
 
 ```groovy
-compile 'com.squareup.whorlwind:whorlwind:1.0.1'
+implementation 'com.squareup.whorlwind:whorlwind:2.1.0'
 ```
 
 

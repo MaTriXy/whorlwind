@@ -15,18 +15,20 @@
  */
 package com.squareup.whorlwind;
 
-import android.annotation.TargetApi;
 import android.content.Context;
 import android.hardware.fingerprint.FingerprintManager;
 import android.os.Build;
 import android.security.keystore.KeyProperties;
+import androidx.annotation.CheckResult;
+import androidx.annotation.RequiresApi;
 import android.util.Log;
 import com.squareup.whorlwind.ReadResult.ReadState;
+import io.reactivex.Completable;
+import io.reactivex.Observable;
 import java.security.KeyFactory;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import okio.ByteString;
-import rx.Observable;
 
 public abstract class Whorlwind {
   static final String TAG = "Whorlwind";
@@ -39,10 +41,16 @@ public abstract class Whorlwind {
     return createRealWhorlwind(context, storage, keyAlias);
   }
 
-  @TargetApi(Build.VERSION_CODES.M)
+  @RequiresApi(Build.VERSION_CODES.M)
   private static Whorlwind createRealWhorlwind(Context context, Storage storage, String keyAlias) {
     try {
       FingerprintManager fingerprintManager = context.getSystemService(FingerprintManager.class);
+      if (fingerprintManager == null) {
+        Log.w(TAG, "No fingerprint manager.");
+        return new NullWhorlwind();
+      }
+
+      if (!isHardwareDetected(fingerprintManager)) return new NullWhorlwind();
 
       KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
       keyStore.load(null); // Ensure the key store can be loaded before continuing.
@@ -56,8 +64,29 @@ public abstract class Whorlwind {
       return new RealWhorlwind(context, fingerprintManager, storage, keyAlias, keyStore,
           keyGenerator, keyFactory);
     } catch (Exception e) {
-      Log.w("Cannot store securely.", e);
+      Log.w(TAG, "Cannot store securely.", e);
       return new NullWhorlwind();
+    }
+  }
+
+  @RequiresApi(Build.VERSION_CODES.M)
+  static boolean isHardwareDetected(FingerprintManager fingerprintManager) {
+    try {
+      return fingerprintManager.isHardwareDetected();
+    } catch (SecurityException e) {
+      Log.w(TAG, "Failed detecting hardware", e);
+      return false;
+    }
+  }
+
+  @RequiresApi(api = Build.VERSION_CODES.M)
+  static boolean hasEnrolledFingerprints(FingerprintManager fingerprintManager) {
+    try {
+      return fingerprintManager.hasEnrolledFingerprints();
+    } catch (IllegalStateException e) {
+      // see https://github.com/square/whorlwind/issues/36
+      Log.w(TAG, "Cannot know if device has enrolled fingerprints", e);
+      return false;
     }
   }
 
@@ -69,13 +98,17 @@ public abstract class Whorlwind {
    * Returns true if the device is currently capable of reading/writing from/to secure storage.
    *
    * <p>
-   * <b>Note:</b> This method must be checked before calling {@link #write(String, ByteString)} or
-   * {@link #read(String)}.
+   * <b>Note:</b> This method must be checked before subscribing to
+   * {@link #write(String, ByteString)} or {@link #read(String)}.
    */
+  @CheckResult
   public abstract boolean canStoreSecurely();
 
-  /** Writes a value to secure storage. */
-  public abstract void write(String name, ByteString value);
+  /**
+   * Writes a value to secure storage. Must check {@link #canStoreSecurely()} before subscribing.
+   */
+  @CheckResult
+  public abstract Completable write(String name, ByteString value);
 
   /**
    * Reads a value from secure storage. If no value is found, a result with a {@code state} of
@@ -83,6 +116,9 @@ public abstract class Whorlwind {
    * with a {@code state} of {@link ReadState#NEEDS_AUTH NEEDS_AUTH} will be emitted and the
    * fingerprint reader will be activated. Future events from the fingerprint reader will be
    * emitted to the stream.
+   *
+   * Must check {@link #canStoreSecurely()} before subscribing.
    */
+  @CheckResult
   public abstract Observable<ReadResult> read(String name);
 }
